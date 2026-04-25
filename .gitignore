@@ -1,5 +1,6 @@
 # SwiftPM / build artifacts
 .build/
+build/
 Packages/
 
 # Xcode user data / derived files
@@ -13,8 +14,12 @@ DerivedData/
 
 # Local compiled binaries
 hex_fn_listener
+hex_trigger_listener
 hex_fn_listener_review
 hex_fn_listener_test_build
+hex_trigger_listener_test_build
+*_test_build
+*.app/
 
 # Local formatter state
 .hex-formatter/

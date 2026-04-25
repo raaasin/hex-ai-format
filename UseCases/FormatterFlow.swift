@@ -1,11 +1,23 @@
 import Foundation
 
+private enum FormatterFlowError: LocalizedError {
+    case instructionTimeout(timeoutSeconds: TimeInterval)
+
+    var errorDescription: String? {
+        switch self {
+        case .instructionTimeout(let timeoutSeconds):
+            return "No new Hex transcript appeared within \(Int(timeoutSeconds))s. Make sure Hex is recording and bound directly to \(triggerKeyName)."
+        }
+    }
+}
+
 final class FormatterFlow {
     private let queue = DispatchQueue(label: "hex.trigger.listener.serial")
     private let systemAdapter: SystemAdapter
     private let stateRepository: StateRepository
     private let historyRepository: HexHistoryRepository
     private let xaiClient: XAIClient
+    private let statusOverlay: StatusOverlayController
     private let appConfig: AppConfig
 
     private var waitingForInstruction = false
@@ -20,12 +32,14 @@ final class FormatterFlow {
         stateRepository: StateRepository,
         historyRepository: HexHistoryRepository,
         xaiClient: XAIClient,
+        statusOverlay: StatusOverlayController,
         appConfig: AppConfig
     ) {
         self.systemAdapter = systemAdapter
         self.stateRepository = stateRepository
         self.historyRepository = historyRepository
         self.xaiClient = xaiClient
+        self.statusOverlay = statusOverlay
         self.appConfig = appConfig
     }
 
@@ -35,7 +49,7 @@ final class FormatterFlow {
 
             let selected = self.systemAdapter.captureSelectionText()
             if selected.count > maxOriginalLength {
-                self.systemAdapter.notify("Please select less text.")
+                self.statusOverlay.show("Selection too large: \(selected.count) characters. Limit is \(maxOriginalLength).", autoHideAfter: 4.0)
                 self.stateRepository.debug("selected too long: \(selected.count)")
                 self.clearFlowState()
                 return
@@ -43,6 +57,7 @@ final class FormatterFlow {
 
             guard !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 self.stateRepository.debug("trigger down with no selection")
+                self.statusOverlay.show("Nothing selected. Select text before holding \(triggerKeyName).", autoHideAfter: 3.0)
                 return
             }
 
@@ -57,7 +72,7 @@ final class FormatterFlow {
             self.waitingForInstruction = true
             self.stateRepository.writeOriginal(selected)
             self.stateRepository.writeWaitingState()
-            self.systemAdapter.notify("Original captured. Speak instruction, then release \(triggerKeyName).")
+            self.statusOverlay.show("Speak, then release \(triggerKeyName).", autoHideAfter: nil)
             self.stateRepository.debug("armed with selection length=\(selected.count) bundle=\(self.armedContext?.bundleID ?? "unknown") historyBaselineTimestamp=\(self.armedContext?.historyBaselineTimestamp ?? 0)")
             self.stateRepository.debug("expecting Hex to be bound to \(triggerKeyName) directly")
             self.stateRepository.debugBlock("selected_text", selected)
@@ -70,6 +85,7 @@ final class FormatterFlow {
 
             self.waitingForInstruction = false
             self.processing = true
+            self.statusOverlay.show("Reading instruction...", autoHideAfter: nil)
             self.stateRepository.debug("trigger up while waiting; processing instruction")
 
             self.queue.asyncAfter(deadline: .now() + 0.8) {
@@ -84,60 +100,72 @@ final class FormatterFlow {
             return
         }
 
-        guard let rawInstruction = waitForNewHexInstruction(context: context, timeoutSeconds: appConfig.instructionWaitTimeoutSeconds) else {
-            systemAdapter.notify("No instruction detected.")
-            stateRepository.debug("no instruction detected from hex history")
+        switch waitForNewHexInstruction(context: context, timeoutSeconds: appConfig.instructionWaitTimeoutSeconds) {
+        case .failure(let error):
+            showFailure("Instruction capture failed", error: error, autoHideAfter: 5.0)
+            stateRepository.debug("instruction capture failed reason=\(error.localizedDescription)")
             clearFlowState()
             return
-        }
+        case .success(let rawInstruction):
+            let instruction = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let instruction = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            stateRepository.debug("instruction captured length=\(instruction.count) selected=true")
+            stateRepository.debugBlock("instruction_text", rawInstruction)
 
-        stateRepository.debug("instruction captured length=\(instruction.count) selected=true")
-        stateRepository.debugBlock("instruction_text", rawInstruction)
+            statusOverlay.show("Formatting...", autoHideAfter: nil)
+            startFormattingAnimation(replacing: rawInstruction)
 
-        startFormattingAnimation(replacing: rawInstruction)
+            xaiClient.format(original: context.originalText, instruction: instruction) { result in
+                self.queue.async {
+                    switch result {
+                    case .success(let formatted):
+                        self.stopFormattingAnimation()
+                        self.replaceVisiblePlaceholder(with: formatted)
+                        self.statusOverlay.show("Done.", autoHideAfter: 1.5)
+                        self.stateRepository.debug("formatting success resultLength=\(formatted.count)")
+                    case .failure(let error):
+                        self.stopFormattingAnimation()
+                        self.replaceVisiblePlaceholder(with: context.originalText)
+                        self.showFailure("Formatting failed", error: error, autoHideAfter: 5.0)
+                        self.stateRepository.debug("formatting failed reason=\(error.localizedDescription), original restored")
+                    }
 
-        xaiClient.format(original: context.originalText, instruction: instruction) { result in
-            self.queue.async {
-                switch result {
-                case .success(let formatted):
-                    self.stopFormattingAnimation()
-                    self.replaceVisiblePlaceholder(with: formatted)
-                    self.systemAdapter.notify("Formatting applied.")
-                    self.stateRepository.debug("formatting success resultLength=\(formatted.count)")
-                case .failure:
-                    self.stopFormattingAnimation()
-                    self.replaceVisiblePlaceholder(with: context.originalText)
-                    self.systemAdapter.notify("Formatting failed.")
-                    self.stateRepository.debug("formatting failed, original restored")
+                    self.clearFlowState()
                 }
-
-                self.clearFlowState()
             }
         }
     }
 
-    private func waitForNewHexInstruction(context: ArmedContext, timeoutSeconds: TimeInterval) -> String? {
+    private func waitForNewHexInstruction(context: ArmedContext, timeoutSeconds: TimeInterval) -> Result<String, Error> {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var lastHistoryError: Error?
 
         while Date() < deadline {
-            if let entry = historyRepository.firstNewEntry(
+            switch historyRepository.firstNewEntry(
                 sinceTimestamp: context.historyBaselineTimestamp,
                 excludingID: context.historyBaselineID,
                 bundleID: context.bundleID
             ) {
+            case .failure(let error):
+                lastHistoryError = error
+            case .success(let entry):
+                lastHistoryError = nil
+                guard let entry else { break }
                 let trimmed = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     stateRepository.debug("new hex history entry id=\(entry.id) timestamp=\(entry.timestamp)")
-                    return entry.text
+                    return .success(entry.text)
                 }
             }
 
             usleep(250_000)
         }
 
-        return nil
+        if let lastHistoryError {
+            return .failure(lastHistoryError)
+        }
+
+        return .failure(FormatterFlowError.instructionTimeout(timeoutSeconds: timeoutSeconds))
     }
 
     private func startFormattingAnimation(replacing instruction: String) {
@@ -192,6 +220,24 @@ final class FormatterFlow {
     private func animationFrames() -> [String] {
         let cleaned = appConfig.formattingPlaceholderFrames.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return cleaned.isEmpty ? [appConfig.placeholderText] : cleaned
+    }
+
+    private func showFailure(_ prefix: String, error: Error, autoHideAfter delay: TimeInterval) {
+        let detail = condensedMessage(error.localizedDescription)
+        statusOverlay.show("\(prefix): \(detail)", autoHideAfter: delay)
+    }
+
+    private func condensedMessage(_ message: String) -> String {
+        let collapsed = message
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard collapsed.count > 220 else {
+            return collapsed
+        }
+
+        let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 220)
+        return String(collapsed[..<endIndex]) + "..."
     }
 
     private func clearFlowState() {

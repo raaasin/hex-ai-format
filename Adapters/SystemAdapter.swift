@@ -17,12 +17,6 @@ final class SystemAdapter {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 
-    func notify(_ message: String) {
-        let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = #"display notification "\#(escaped)" with title "Hex Right Option Listener""#
-        _ = runOSA(script)
-    }
-
     func captureSelectionText() -> String {
         if let axSelected = captureSelectedTextViaAX(), !axSelected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             stateRepository.debug("captureSelection source=ax app=\(frontmostBundleID() ?? "unknown") selectedLen=\(axSelected.count)")

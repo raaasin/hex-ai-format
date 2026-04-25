@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a small macOS Swift utility that works alongside Hex.
+This repo is a small macOS menu bar Swift utility that works alongside Hex.
 
 The app lets a user:
 
@@ -20,13 +20,18 @@ The central idea is simple: capture the original selection first, wait for Hex t
 hex-fix
 |
 |-- main.swift
-|   |-- process startup
+|   |-- NSApplication startup
 |   |-- Accessibility trust prompt
 |   |-- dependency wiring
 |   |-- CGEvent tap for right Option flagsChanged events
-|   `-- main run loop
+|   `-- menu bar app lifecycle
 |
 |-- App/
+|   |-- MenuBarController.swift
+|   |   |-- owns the status bar item
+|   |   |-- exposes listener status and retry
+|   |   `-- opens config/debug files and quits the app
+|   |
 |   `-- HexTriggerListener.swift
 |       |-- listens for right Option key state changes
 |       |-- ignores non-trigger flag changes
@@ -56,11 +61,14 @@ hex-fix
 |       `-- user prompt construction
 |
 `-- Adapters/
+    |-- StatusOverlayController.swift
+    |   |-- shows top-center HUD status text
+    |   `-- avoids stealing focus from the active app
+    |
     |-- SystemAdapter.swift
     |   |-- Accessibility selected-text capture
     |   |-- clipboard fallback capture
     |   |-- safe paste
-    |   |-- macOS notifications
     |   `-- System Events automation
     |
     |-- HexHistoryRepository.swift
@@ -97,8 +105,8 @@ Adapters are edge integrations. `FormatterFlow` calls them for side effects, but
 
 Important boundaries:
 
-- `main.swift` is only for process startup, event tap setup, and dependency composition.
-- `App/` translates OS input events into use-case calls.
+- `main.swift` is only for app startup, event tap setup, and dependency composition.
+- `App/` owns menu bar UI and translates OS input events into use-case calls.
 - `UseCases/` owns orchestration, timing, state transitions, and the formatting flow.
 - `Domain/` owns stable models, constants, and prompt construction.
 - `Adapters/` owns macOS, filesystem, Hex history, and xAI integration details.
@@ -107,16 +115,18 @@ Do not move prompt text, API payload policy, Hex parsing policy, or flow state i
 
 ## Runtime Flow
 
-1. App starts from `main.swift`.
+1. App starts from `main.swift` as an accessory menu bar app.
 2. `AXIsProcessTrustedWithOptions` requests Accessibility permission if needed.
 3. `main.swift` constructs:
    - `StateRepository`
    - `ConfigRepository`
    - `SystemAdapter`
+   - `StatusOverlayController`
    - `HexHistoryRepository`
    - `XAIClient`
    - `FormatterFlow`
    - `HexTriggerListener`
+   - `MenuBarController`
 4. A `CGEvent` tap listens for `.flagsChanged`.
 5. `HexTriggerListener` checks for `triggerKeyCode == 61` and `.maskAlternate`.
 6. On right Option down:
@@ -124,7 +134,7 @@ Do not move prompt text, API payload policy, Hex parsing policy, or flow state i
    - It rejects empty selections and selections over `maxOriginalLength`.
    - It records the latest Hex history entry as a baseline.
    - It writes `original.txt` and `state.json`.
-   - It notifies the user to speak and release right Option.
+   - It shows HUD status telling the user to speak and release right Option.
 7. On right Option up:
    - `FormatterFlow` waits briefly, then polls Hex history.
    - It finds the first new transcript matching the frontmost app bundle when possible.
@@ -135,7 +145,7 @@ Do not move prompt text, API payload policy, Hex parsing policy, or flow state i
    - The formatted text is pasted.
    - Flow state is cleared.
 9. On timeout or xAI failure:
-   - The user is notified.
+   - The user sees HUD status.
    - If needed, the original text is restored.
    - Flow state is cleared.
 
@@ -151,7 +161,8 @@ Owns:
 - CGEvent tap callback.
 - Re-enabling the tap after timeout or user-input disablement.
 - Dependency construction.
-- Run loop startup.
+- App lifecycle startup.
+- Recoverable event-tap setup failure state.
 
 Avoid:
 
@@ -163,7 +174,13 @@ Avoid:
 
 ### `App/`
 
-Input/event listener layer.
+Menu bar and input/event listener layer.
+
+`MenuBarController.swift` owns:
+
+- The accessory status bar item.
+- Listener status display.
+- Retry Listener, Open Config, Open Debug Log, and Quit actions.
 
 `HexTriggerListener.swift` owns:
 
@@ -186,6 +203,7 @@ Application workflow layer.
 - Selection length validation.
 - Hex history baseline timing.
 - Polling for the spoken instruction.
+- HUD status messages for flow state.
 - Placeholder animation.
 - Success, failure, timeout, and cleanup behavior.
 
@@ -227,13 +245,18 @@ External integration layer.
 `SystemAdapter.swift` owns:
 
 - frontmost app bundle lookup
-- macOS notifications through `osascript`
 - selected-text capture through Accessibility
 - clipboard-based copy fallback
 - clipboard snapshot and restore
 - safe paste
 - selecting characters to the left of the cursor
 - terminal-specific copy and paste shortcuts
+
+`StatusOverlayController.swift` owns:
+
+- top-center HUD status presentation
+- non-activating, click-through overlay behavior
+- auto-hide timing for transient status text
 
 `HexHistoryRepository.swift` owns:
 
@@ -331,13 +354,13 @@ Preserve the current user flow unless the user explicitly asks to change it:
 Build:
 
 ```bash
-swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o hex_trigger_listener
+./scripts/build_app.sh
 ```
 
 Run:
 
 ```bash
-./hex_trigger_listener
+open "build/Hex Fix.app"
 ```
 
 This is not currently a Swift Package. There is no `Package.swift` and no formal test target.
@@ -347,15 +370,17 @@ This is not currently a Swift Package. There is no `Package.swift` and no formal
 Minimum verification after code changes:
 
 1. Build successfully.
-2. Start the listener.
+2. Start the menu bar app.
 3. Grant Accessibility and Input Monitoring if macOS asks.
-4. Select text in an editable field.
-5. Hold right Option.
-6. Speak an instruction through Hex.
-7. Release right Option.
-8. Confirm a new Hex history entry is detected.
-9. Confirm the selected text is replaced by the formatted result.
-10. Check `~/.hex-formatter/debug.log` if anything fails.
+4. Confirm the menu bar item appears and says the listener is active.
+5. Select text in an editable field.
+6. Hold right Option.
+7. Speak an instruction through Hex.
+8. Release right Option.
+9. Confirm a HUD status appears instead of a notification.
+10. Confirm a new Hex history entry is detected.
+11. Confirm the selected text is replaced by the formatted result.
+12. Check `~/.hex-formatter/debug.log` if anything fails.
 
 For doc-only changes, no build is required.
 
@@ -364,11 +389,13 @@ For doc-only changes, no build is required.
 - Prompt behavior: edit `Domain/PromptBuilder.swift`.
 - Model, timeout, or placeholder defaults: edit `Domain/Models.swift`.
 - Formatting state machine: edit `UseCases/FormatterFlow.swift`.
+- Menu bar actions/status: edit `App/MenuBarController.swift`.
 - Trigger key handling: edit `App/HexTriggerListener.swift`.
 - Event tap setup or dependency wiring: edit `main.swift`.
 - xAI request shape or response parsing: edit `Adapters/XAIClient.swift`.
 - Hex transcript lookup: edit `Adapters/HexHistoryRepository.swift`.
-- Clipboard, paste, AX, notifications, or key automation: edit `Adapters/SystemAdapter.swift`.
+- Clipboard, paste, AX, or key automation: edit `Adapters/SystemAdapter.swift`.
+- HUD status overlay: edit `Adapters/StatusOverlayController.swift`.
 - Local config loading: edit `Adapters/ConfigRepository.swift`.
 - Local state and debug logs: edit `Adapters/StateRepository.swift`.
 
@@ -394,6 +421,8 @@ Do not commit:
 - `hex_fn_listener_review`
 - `hex_fn_listener_test_build`
 - `hex_trigger_listener_test_build`
+- `build/`
+- `*.app`
 - any other compiled local binaries
 - derived build output
 - local logs
@@ -404,7 +433,8 @@ Before handing off code changes, check:
 
 ```bash
 git status --short
-swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o /tmp/hex_trigger_listener_test_build
+env CLANG_MODULE_CACHE_PATH=/tmp/hex-fix-module-cache swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o /tmp/hex_trigger_listener_test_build
+./scripts/build_app.sh
 ```
 
 Remove or leave untracked local binaries out of commits.

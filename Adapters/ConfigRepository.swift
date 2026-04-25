@@ -23,10 +23,6 @@ final class ConfigRepository {
             return partial.merged(with: .defaults)
         }
 
-        if let config = try? JSONDecoder().decode(AppConfig.self, from: data) {
-            return config
-        }
-
         stateRepository.debug("config decode failed; using defaults")
         return .defaults
     }

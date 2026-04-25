@@ -1,5 +1,37 @@
 import Foundation
 
+private enum XAIClientError: LocalizedError {
+    case missingAPIKey
+    case invalidBaseURL(String)
+    case requestEncodingFailed
+    case requestFailed(String)
+    case httpFailure(statusCode: Int, details: String)
+    case badAPIResponse
+    case emptyModelOutput
+
+    var errorDescription: String? {
+        switch self {
+        case .missingAPIKey:
+            return "Missing API key. Set XAI_API_KEY or OPENAI_API_KEY in the environment or ~/.zshrc."
+        case .invalidBaseURL(let baseURL):
+            return "Invalid xAI base URL: \(baseURL)"
+        case .requestEncodingFailed:
+            return "The xAI request payload could not be encoded."
+        case .requestFailed(let message):
+            return "The xAI request failed: \(message)"
+        case .httpFailure(let statusCode, let details):
+            if details.isEmpty {
+                return "xAI returned HTTP \(statusCode)."
+            }
+            return "xAI returned HTTP \(statusCode): \(details)"
+        case .badAPIResponse:
+            return "xAI returned an unreadable response payload."
+        case .emptyModelOutput:
+            return "xAI returned an empty response."
+        }
+    }
+}
+
 final class XAIClient {
     private let stateRepository: StateRepository
     private let appConfig: AppConfig
@@ -14,13 +46,13 @@ final class XAIClient {
     func format(original: String, instruction: String, completion: @escaping (Result<String, Error>) -> Void) {
         guard let apiKey, !apiKey.isEmpty else {
             stateRepository.debug("missing API key")
-            completion(.failure(NSError(domain: "HexTriggerListener", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API key"])))
+            completion(.failure(XAIClientError.missingAPIKey))
             return
         }
 
         guard let url = URL(string: "\(appConfig.baseURL)/responses") else {
             stateRepository.debug("invalid base URL: \(appConfig.baseURL)")
-            completion(.failure(NSError(domain: "HexTriggerListener", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid base URL"])))
+            completion(.failure(XAIClientError.invalidBaseURL(appConfig.baseURL)))
             return
         }
 
@@ -31,7 +63,7 @@ final class XAIClient {
             "max_output_tokens": appConfig.maxOutputTokens,
             "stream": false,
             "tools": [
-                ["type": "web_search_preview"],
+                ["type": "web_search"],
                 ["type": "x_search"]
             ],
             "input": [
@@ -46,7 +78,7 @@ final class XAIClient {
         stateRepository.debugBlock("api_request_payload", stateRepository.prettyJSONString(payload))
 
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
-            completion(.failure(NSError(domain: "HexTriggerListener", code: 3, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])))
+            completion(.failure(XAIClientError.requestEncodingFailed))
             return
         }
 
@@ -60,7 +92,7 @@ final class XAIClient {
         URLSession.shared.dataTask(with: request) { [stateRepository] data, response, error in
             if let error {
                 stateRepository.debug("api request error: \(error.localizedDescription)")
-                completion(.failure(error))
+                completion(.failure(XAIClientError.requestFailed(error.localizedDescription)))
                 return
             }
 
@@ -68,7 +100,7 @@ final class XAIClient {
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                 stateRepository.debug("api http failure: \(http.statusCode)")
                 stateRepository.debugBlock("api_response_raw", bodyText)
-                completion(.failure(NSError(domain: "HexTriggerListener", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode): \(bodyText)"])))
+                completion(.failure(XAIClientError.httpFailure(statusCode: http.statusCode, details: Self.summarizeResponseBody(bodyText))))
                 return
             }
 
@@ -78,7 +110,7 @@ final class XAIClient {
 
             guard let data, let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 stateRepository.debug("bad API response payload")
-                completion(.failure(NSError(domain: "HexTriggerListener", code: 4, userInfo: [NSLocalizedDescriptionKey: "Bad API response"])))
+                completion(.failure(XAIClientError.badAPIResponse))
                 return
             }
 
@@ -134,8 +166,21 @@ final class XAIClient {
                 }
             }
 
-            completion(.failure(NSError(domain: "HexTriggerListener", code: 5, userInfo: [NSLocalizedDescriptionKey: "Empty model output"])))
+            completion(.failure(XAIClientError.emptyModelOutput))
         }.resume()
+    }
+
+    private static func summarizeResponseBody(_ body: String) -> String {
+        let collapsed = body
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard collapsed.count > 180 else {
+            return collapsed
+        }
+
+        let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 180)
+        return String(collapsed[..<endIndex]) + "..."
     }
 
     private static func loadAPIKey() -> String? {
