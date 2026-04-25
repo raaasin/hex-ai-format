@@ -7,9 +7,9 @@ This repo is a small macOS Swift utility that works alongside Hex.
 The app lets a user:
 
 1. Select text in another app.
-2. Hold `Fn`.
+2. Hold right Option.
 3. Speak an instruction through Hex.
-4. Release `Fn`.
+4. Release right Option.
 5. Have the selected text replaced with xAI-formatted output.
 
 The central idea is simple: capture the original selection first, wait for Hex to write the spoken instruction into its transcription history, send both strings to xAI, then paste the formatted result back into the original app.
@@ -23,22 +23,22 @@ hex-fix
 |   |-- process startup
 |   |-- Accessibility trust prompt
 |   |-- dependency wiring
-|   |-- CGEvent tap for Fn flagsChanged events
+|   |-- CGEvent tap for right Option flagsChanged events
 |   `-- main run loop
 |
 |-- App/
-|   `-- HexFnListener.swift
-|       |-- listens for Fn key state changes
-|       |-- ignores non-Fn flag changes
-|       |-- calls FormatterFlow.handleFnDown()
-|       `-- calls FormatterFlow.handleFnUp()
+|   `-- HexTriggerListener.swift
+|       |-- listens for right Option key state changes
+|       |-- ignores non-trigger flag changes
+|       |-- calls FormatterFlow.handleTriggerDown()
+|       `-- calls FormatterFlow.handleTriggerUp()
 |
 |-- UseCases/
 |   `-- FormatterFlow.swift
 |       |-- owns the formatting state machine
-|       |-- captures original text on Fn down
+|       |-- captures original text on trigger down
 |       |-- stores the Hex history baseline
-|       |-- waits for a new Hex transcript on Fn up
+|       |-- waits for a new Hex transcript on trigger up
 |       |-- shows and animates the formatting placeholder
 |       |-- calls xAI
 |       |-- replaces placeholder with formatted text
@@ -116,16 +116,16 @@ Do not move prompt text, API payload policy, Hex parsing policy, or flow state i
    - `HexHistoryRepository`
    - `XAIClient`
    - `FormatterFlow`
-   - `HexFnListener`
+   - `HexTriggerListener`
 4. A `CGEvent` tap listens for `.flagsChanged`.
-5. `HexFnListener` checks for `fnKeyCode == 63` and `.maskSecondaryFn`.
-6. On `Fn` down:
+5. `HexTriggerListener` checks for `triggerKeyCode == 61` and `.maskAlternate`.
+6. On right Option down:
    - `FormatterFlow` captures selected text.
    - It rejects empty selections and selections over `maxOriginalLength`.
    - It records the latest Hex history entry as a baseline.
    - It writes `original.txt` and `state.json`.
-   - It notifies the user to speak and release `Fn`.
-7. On `Fn` up:
+   - It notifies the user to speak and release right Option.
+7. On right Option up:
    - `FormatterFlow` waits briefly, then polls Hex history.
    - It finds the first new transcript matching the frontmost app bundle when possible.
    - It replaces the visible instruction with an animated placeholder.
@@ -165,12 +165,12 @@ Avoid:
 
 Input/event listener layer.
 
-`HexFnListener.swift` owns:
+`HexTriggerListener.swift` owns:
 
-- Tracking whether `Fn` is currently down.
-- Filtering `.flagsChanged` events to the physical `Fn` key.
-- Calling `FormatterFlow.handleFnDown()` and `FormatterFlow.handleFnUp()`.
-- Logging ignored non-Fn flag events.
+- Tracking whether right Option is currently down.
+- Filtering `.flagsChanged` events to the physical right Option key.
+- Calling `FormatterFlow.handleTriggerDown()` and `FormatterFlow.handleTriggerUp()`.
+- Logging ignored non-trigger flag events.
 
 Keep this layer thin. It should not know how selection capture, Hex history, xAI, or paste replacement works.
 
@@ -205,8 +205,8 @@ Core data and prompt layer.
 `Models.swift` owns:
 
 - `maxOriginalLength`
-- `fnKeyCode`
-- `hexRecordButtonName`
+- `triggerKeyCode`
+- `triggerKeyName`
 - persisted listener-state model
 - Hex history models
 - `ArmedContext`
@@ -303,8 +303,11 @@ The generated config file supports:
 - `placeholder_text`
 - `formatting_placeholder_frames`
 - `formatting_placeholder_frame_interval_seconds`
+- `debug_logging_enabled`
 
 `ConfigRepository` accepts partial config files and fills missing fields from defaults.
+
+Debug logging defaults to disabled. Set `debug_logging_enabled` to `true` in `~/.hex-formatter/config.json` only when troubleshooting.
 
 API key lookup order:
 
@@ -317,10 +320,10 @@ API key lookup order:
 
 Preserve the current user flow unless the user explicitly asks to change it:
 
-- Hex should be configured to use `Fn` directly.
+- Hex should be configured to use right Option directly.
 - The app should not require a second press or separate trigger.
-- `Fn` down captures the original selected text.
-- `Fn` up means the spoken instruction should now be available from Hex history.
+- right Option down captures the original selected text.
+- right Option up means the spoken instruction should now be available from Hex history.
 - The formatted result should replace the selected text in the original editable context.
 
 ## Build and Run
@@ -328,13 +331,13 @@ Preserve the current user flow unless the user explicitly asks to change it:
 Build:
 
 ```bash
-swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o hex_fn_listener
+swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o hex_trigger_listener
 ```
 
 Run:
 
 ```bash
-./hex_fn_listener
+./hex_trigger_listener
 ```
 
 This is not currently a Swift Package. There is no `Package.swift` and no formal test target.
@@ -347,9 +350,9 @@ Minimum verification after code changes:
 2. Start the listener.
 3. Grant Accessibility and Input Monitoring if macOS asks.
 4. Select text in an editable field.
-5. Hold `Fn`.
+5. Hold right Option.
 6. Speak an instruction through Hex.
-7. Release `Fn`.
+7. Release right Option.
 8. Confirm a new Hex history entry is detected.
 9. Confirm the selected text is replaced by the formatted result.
 10. Check `~/.hex-formatter/debug.log` if anything fails.
@@ -361,7 +364,7 @@ For doc-only changes, no build is required.
 - Prompt behavior: edit `Domain/PromptBuilder.swift`.
 - Model, timeout, or placeholder defaults: edit `Domain/Models.swift`.
 - Formatting state machine: edit `UseCases/FormatterFlow.swift`.
-- Fn key handling: edit `App/HexFnListener.swift`.
+- Trigger key handling: edit `App/HexTriggerListener.swift`.
 - Event tap setup or dependency wiring: edit `main.swift`.
 - xAI request shape or response parsing: edit `Adapters/XAIClient.swift`.
 - Hex transcript lookup: edit `Adapters/HexHistoryRepository.swift`.
@@ -387,8 +390,10 @@ For doc-only changes, no build is required.
 Do not commit:
 
 - `hex_fn_listener`
+- `hex_trigger_listener`
 - `hex_fn_listener_review`
 - `hex_fn_listener_test_build`
+- `hex_trigger_listener_test_build`
 - any other compiled local binaries
 - derived build output
 - local logs
@@ -399,7 +404,7 @@ Before handing off code changes, check:
 
 ```bash
 git status --short
-swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o hex_fn_listener_test_build
+swiftc main.swift App/*.swift Domain/*.swift UseCases/*.swift Adapters/*.swift -o /tmp/hex_trigger_listener_test_build
 ```
 
 Remove or leave untracked local binaries out of commits.

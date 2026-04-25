@@ -1,11 +1,11 @@
 import Foundation
 import ApplicationServices
 
-private var globalListener: HexFnListener?
+private var globalListener: HexTriggerListener?
 
 private let tapCallback: CGEventTapCallBack = { _, type, event, refcon in
     guard let refcon else { return Unmanaged.passUnretained(event) }
-    let listener = Unmanaged<HexFnListener>.fromOpaque(refcon).takeUnretainedValue()
+    let listener = Unmanaged<HexTriggerListener>.fromOpaque(refcon).takeUnretainedValue()
 
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
         if let tap = listener.tap {
@@ -27,6 +27,7 @@ _ = AXIsProcessTrustedWithOptions(options)
 let stateRepository = StateRepository()
 let configRepository = ConfigRepository(stateRepository: stateRepository)
 let appConfig = configRepository.load()
+stateRepository.setDebugLoggingEnabled(appConfig.debugLoggingEnabled)
 let systemAdapter = SystemAdapter(stateRepository: stateRepository)
 let historyRepository = HexHistoryRepository(stateRepository: stateRepository)
 let xaiClient = XAIClient(stateRepository: stateRepository, appConfig: appConfig)
@@ -37,7 +38,7 @@ let formatterFlow = FormatterFlow(
     xaiClient: xaiClient,
     appConfig: appConfig
 )
-let listener = HexFnListener(formatterFlow: formatterFlow, stateRepository: stateRepository)
+let listener = HexTriggerListener(formatterFlow: formatterFlow, stateRepository: stateRepository)
 globalListener = listener
 stateRepository.debug("listener init")
 stateRepository.debug("config path=\(stateRepository.configPath.path) model=\(appConfig.model)")
@@ -62,5 +63,5 @@ let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
 CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
 CGEvent.tapEnable(tap: tap, enable: true)
 
-print("Hex Fn listener running (no second press flow).")
+print("Hex Right Option listener running (no second press flow).")
 RunLoop.main.run()

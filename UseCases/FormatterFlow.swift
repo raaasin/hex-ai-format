@@ -1,7 +1,7 @@
 import Foundation
 
 final class FormatterFlow {
-    private let queue = DispatchQueue(label: "hex.fn.listener.serial")
+    private let queue = DispatchQueue(label: "hex.trigger.listener.serial")
     private let systemAdapter: SystemAdapter
     private let stateRepository: StateRepository
     private let historyRepository: HexHistoryRepository
@@ -29,7 +29,7 @@ final class FormatterFlow {
         self.appConfig = appConfig
     }
 
-    func handleFnDown() {
+    func handleTriggerDown() {
         queue.async {
             if self.processing { return }
 
@@ -42,7 +42,7 @@ final class FormatterFlow {
             }
 
             guard !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                self.stateRepository.debug("fn down with no selection")
+                self.stateRepository.debug("trigger down with no selection")
                 return
             }
 
@@ -57,20 +57,20 @@ final class FormatterFlow {
             self.waitingForInstruction = true
             self.stateRepository.writeOriginal(selected)
             self.stateRepository.writeWaitingState()
-            self.systemAdapter.notify("Original captured. Speak instruction, then release Fn.")
+            self.systemAdapter.notify("Original captured. Speak instruction, then release \(triggerKeyName).")
             self.stateRepository.debug("armed with selection length=\(selected.count) bundle=\(self.armedContext?.bundleID ?? "unknown") historyBaselineTimestamp=\(self.armedContext?.historyBaselineTimestamp ?? 0)")
-            self.stateRepository.debug("expecting Hex to be bound to Fn directly")
+            self.stateRepository.debug("expecting Hex to be bound to \(triggerKeyName) directly")
             self.stateRepository.debugBlock("selected_text", selected)
         }
     }
 
-    func handleFnUp() {
+    func handleTriggerUp() {
         queue.async {
             guard self.waitingForInstruction, !self.processing else { return }
 
             self.waitingForInstruction = false
             self.processing = true
-            self.stateRepository.debug("fn up while waiting; processing instruction")
+            self.stateRepository.debug("trigger up while waiting; processing instruction")
 
             self.queue.asyncAfter(deadline: .now() + 0.8) {
                 self.processInstruction()

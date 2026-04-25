@@ -14,13 +14,13 @@ final class XAIClient {
     func format(original: String, instruction: String, completion: @escaping (Result<String, Error>) -> Void) {
         guard let apiKey, !apiKey.isEmpty else {
             stateRepository.debug("missing API key")
-            completion(.failure(NSError(domain: "HexFnListener", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API key"])))
+            completion(.failure(NSError(domain: "HexTriggerListener", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing API key"])))
             return
         }
 
         guard let url = URL(string: "\(appConfig.baseURL)/responses") else {
             stateRepository.debug("invalid base URL: \(appConfig.baseURL)")
-            completion(.failure(NSError(domain: "HexFnListener", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid base URL"])))
+            completion(.failure(NSError(domain: "HexTriggerListener", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid base URL"])))
             return
         }
 
@@ -46,7 +46,7 @@ final class XAIClient {
         stateRepository.debugBlock("api_request_payload", stateRepository.prettyJSONString(payload))
 
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
-            completion(.failure(NSError(domain: "HexFnListener", code: 3, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])))
+            completion(.failure(NSError(domain: "HexTriggerListener", code: 3, userInfo: [NSLocalizedDescriptionKey: "JSON encode failed"])))
             return
         }
 
@@ -68,7 +68,7 @@ final class XAIClient {
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                 stateRepository.debug("api http failure: \(http.statusCode)")
                 stateRepository.debugBlock("api_response_raw", bodyText)
-                completion(.failure(NSError(domain: "HexFnListener", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode): \(bodyText)"])))
+                completion(.failure(NSError(domain: "HexTriggerListener", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode): \(bodyText)"])))
                 return
             }
 
@@ -78,7 +78,7 @@ final class XAIClient {
 
             guard let data, let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 stateRepository.debug("bad API response payload")
-                completion(.failure(NSError(domain: "HexFnListener", code: 4, userInfo: [NSLocalizedDescriptionKey: "Bad API response"])))
+                completion(.failure(NSError(domain: "HexTriggerListener", code: 4, userInfo: [NSLocalizedDescriptionKey: "Bad API response"])))
                 return
             }
 
@@ -134,7 +134,7 @@ final class XAIClient {
                 }
             }
 
-            completion(.failure(NSError(domain: "HexFnListener", code: 5, userInfo: [NSLocalizedDescriptionKey: "Empty model output"])))
+            completion(.failure(NSError(domain: "HexTriggerListener", code: 5, userInfo: [NSLocalizedDescriptionKey: "Empty model output"])))
         }.resume()
     }
 

@@ -1,8 +1,8 @@
 import Foundation
 
 let maxOriginalLength = 20_000
-let fnKeyCode = 63
-let hexRecordButtonName = "Fn"
+let triggerKeyCode = 61
+let triggerKeyName = "Right Option"
 
 struct ListenerState: Codable {
     let state: String
@@ -38,6 +38,7 @@ struct AppConfig: Codable {
     let placeholderText: String
     let formattingPlaceholderFrames: [String]
     let formattingPlaceholderFrameIntervalSeconds: TimeInterval
+    let debugLoggingEnabled: Bool
 
     static let defaults = AppConfig(
         model: "grok-4-1-fast-non-reasoning",
@@ -52,7 +53,8 @@ struct AppConfig: Codable {
             "*** formatting ***",
             "** formatting **"
         ],
-        formattingPlaceholderFrameIntervalSeconds: 0.35
+        formattingPlaceholderFrameIntervalSeconds: 0.35,
+        debugLoggingEnabled: false
     )
 
     enum CodingKeys: String, CodingKey {
@@ -64,6 +66,7 @@ struct AppConfig: Codable {
         case placeholderText = "placeholder_text"
         case formattingPlaceholderFrames = "formatting_placeholder_frames"
         case formattingPlaceholderFrameIntervalSeconds = "formatting_placeholder_frame_interval_seconds"
+        case debugLoggingEnabled = "debug_logging_enabled"
     }
 }
 
@@ -76,6 +79,7 @@ struct PartialAppConfig: Codable {
     let placeholderText: String?
     let formattingPlaceholderFrames: [String]?
     let formattingPlaceholderFrameIntervalSeconds: TimeInterval?
+    let debugLoggingEnabled: Bool?
 
     func merged(with defaults: AppConfig) -> AppConfig {
         AppConfig(
@@ -86,7 +90,8 @@ struct PartialAppConfig: Codable {
             instructionWaitTimeoutSeconds: instructionWaitTimeoutSeconds ?? defaults.instructionWaitTimeoutSeconds,
             placeholderText: placeholderText ?? defaults.placeholderText,
             formattingPlaceholderFrames: formattingPlaceholderFrames ?? defaults.formattingPlaceholderFrames,
-            formattingPlaceholderFrameIntervalSeconds: formattingPlaceholderFrameIntervalSeconds ?? defaults.formattingPlaceholderFrameIntervalSeconds
+            formattingPlaceholderFrameIntervalSeconds: formattingPlaceholderFrameIntervalSeconds ?? defaults.formattingPlaceholderFrameIntervalSeconds,
+            debugLoggingEnabled: debugLoggingEnabled ?? defaults.debugLoggingEnabled
         )
     }
 
@@ -99,5 +104,6 @@ struct PartialAppConfig: Codable {
         case placeholderText = "placeholder_text"
         case formattingPlaceholderFrames = "formatting_placeholder_frames"
         case formattingPlaceholderFrameIntervalSeconds = "formatting_placeholder_frame_interval_seconds"
+        case debugLoggingEnabled = "debug_logging_enabled"
     }
 }

@@ -7,6 +7,7 @@ final class StateRepository {
     let originalPath: URL
     let statePath: URL
     let debugPath: URL
+    private var debugLoggingEnabled = false
 
     init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.baseDir = home.appendingPathComponent(".hex-formatter", isDirectory: true)
@@ -15,6 +16,10 @@ final class StateRepository {
         self.statePath = baseDir.appendingPathComponent("state.json")
         self.debugPath = baseDir.appendingPathComponent("debug.log")
         try? fileManager.createDirectory(at: baseDir, withIntermediateDirectories: true)
+    }
+
+    func setDebugLoggingEnabled(_ enabled: Bool) {
+        debugLoggingEnabled = enabled
     }
 
     func writeOriginal(_ text: String) {
@@ -35,11 +40,15 @@ final class StateRepository {
     }
 
     func debug(_ message: String) {
+        guard debugLoggingEnabled else { return }
+
         let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
         append(data: Data(line.utf8), to: debugPath)
     }
 
     func debugBlock(_ title: String, _ text: String) {
+        guard debugLoggingEnabled else { return }
+
         let block = """
         [\(ISO8601DateFormatter().string(from: Date()))] BEGIN \(title)
         \(text)
@@ -63,7 +72,7 @@ final class StateRepository {
         let payload = ListenerState(
             state: state,
             createdAt: ISO8601DateFormatter().string(from: Date()),
-            hexRecordButton: hexRecordButtonName
+            hexRecordButton: triggerKeyName
         )
 
         guard let encoded = try? JSONEncoder().encode(payload) else { return }

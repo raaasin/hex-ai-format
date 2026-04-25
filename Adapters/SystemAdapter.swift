@@ -19,7 +19,7 @@ final class SystemAdapter {
 
     func notify(_ message: String) {
         let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = #"display notification "\#(escaped)" with title "Hex Fn Listener""#
+        let script = #"display notification "\#(escaped)" with title "Hex Right Option Listener""#
         _ = runOSA(script)
     }
 
