@@ -1,0 +1,20 @@
+# SwiftPM / build artifacts
+.build/
+Packages/
+
+# Xcode user data / derived files
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Local compiled binaries
+hex_fn_listener
+hex_fn_listener_review
+hex_fn_listener_test_build
+
+# Local formatter state
+.hex-formatter/
